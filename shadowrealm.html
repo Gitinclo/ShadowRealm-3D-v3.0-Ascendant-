@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShadowRealm 3D — v3.0 Ascendant</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Rajdhani:wght@300;400;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --void: #03010a;
+  --shadow: #0d0820;
+  --deep: #140a2e;
+  --purple: #7c3aed;
+  --violet: #a855f7;
+  --gold: #f5a623;
+  --crimson: #dc2626;
+  --cyan: #22d3ee;
+  --green: #4ade80;
+  --glow-purple: rgba(124,58,237,0.4);
+  --glow-gold: rgba(245,166,35,0.4);
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--void);
+  color: #e2d9f3;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 400;
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+
+/* ── CANVAS STARFIELD ── */
+#starCanvas {
+  position: fixed;
+  top:0; left:0;
+  width:100%; height:100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── HERO ── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  z-index: 1;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(124,58,237,0.18) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 40% at 20% 80%, rgba(220,38,38,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 40% at 80% 20%, rgba(34,211,238,0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.realm-badge {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--violet);
+  border: 1px solid rgba(168,85,247,0.4);
+  padding: 0.35rem 1.2rem;
+  border-radius: 2px;
+  margin-bottom: 2rem;
+  backdrop-filter: blur(4px);
+  animation: fadeSlideDown 0.8s ease both;
+}
+
+.hero-title {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: clamp(2.8rem, 8vw, 7rem);
+  font-weight: 900;
+  line-height: 1.0;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #f5a623 0%, #e879f9 40%, #7c3aed 70%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 40px rgba(124,58,237,0.5));
+  animation: fadeSlideDown 0.9s 0.1s ease both, titlePulse 4s 2s ease-in-out infinite;
+  margin-bottom: 0.3rem;
+}
+
+.hero-sub {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: clamp(1rem, 2.5vw, 1.5rem);
+  color: var(--gold);
+  letter-spacing: 0.15em;
+  margin-bottom: 1.5rem;
+  animation: fadeSlideDown 1s 0.2s ease both;
+}
+
+.hero-desc {
+  font-size: 1.15rem;
+  color: #b8a9d4;
+  max-width: 660px;
+  line-height: 1.7;
+  animation: fadeSlideDown 1s 0.35s ease both;
+  margin-bottom: 2.5rem;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-bottom: 3rem;
+  animation: fadeSlideDown 1s 0.45s ease both;
+}
+
+.tag {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 2px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.tag-purple { color: var(--violet); border-color: rgba(168,85,247,0.5); background: rgba(124,58,237,0.1); }
+.tag-gold   { color: var(--gold);   border-color: rgba(245,166,35,0.5); background: rgba(245,166,35,0.08); }
+.tag-cyan   { color: var(--cyan);   border-color: rgba(34,211,238,0.4); background: rgba(34,211,238,0.06); }
+.tag-red    { color: #f87171;       border-color: rgba(248,113,113,0.4);background: rgba(220,38,38,0.08); }
+.tag-green  { color: var(--green);  border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.07); }
+
+.cta-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  animation: fadeSlideDown 1s 0.55s ease both;
+}
+
+.btn {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.85rem 2.2rem;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.1);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.btn:hover::after { opacity: 1; }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--purple) 0%, #9333ea 100%);
+  color: #fff;
+  box-shadow: 0 0 30px rgba(124,58,237,0.45), 0 4px 16px rgba(0,0,0,0.5);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 50px rgba(124,58,237,0.7), 0 8px 24px rgba(0,0,0,0.6);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--gold);
+  border: 1.5px solid var(--gold);
+  box-shadow: 0 0 20px rgba(245,166,35,0.2);
+}
+.btn-secondary:hover {
+  background: rgba(245,166,35,0.12);
+  box-shadow: 0 0 35px rgba(245,166,35,0.4);
+  transform: translateY(-2px);
+}
+
+/* ── SCROLL INDICATOR ── */
+.scroll-hint {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  animation: fadeSlideDown 1s 1s ease both;
+}
+.scroll-hint span {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.25em;
+  color: rgba(255,255,255,0.3);
+  text-transform: uppercase;
+}
+.scroll-arrow {
+  width: 1.5px;
+  height: 36px;
+  background: linear-gradient(to bottom, rgba(124,58,237,0.8), transparent);
+  animation: scrollArrow 2s ease-in-out infinite;
+}
+
+/* ── SECTION LAYOUT ── */
+section {
+  position: relative;
+  z-index: 1;
+  padding: 6rem 2rem;
+}
+
+.section-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.section-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--violet);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, rgba(168,85,247,0.4), transparent);
+}
+
+.section-title {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 700;
+  color: #f0e8ff;
+  margin-bottom: 1rem;
+  line-height: 1.2;
+}
+
+.section-body {
+  color: #b8a9d4;
+  font-size: 1.1rem;
+  line-height: 1.75;
+  max-width: 680px;
+}
+
+/* ── FEATURES GRID ── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 3rem;
+}
+
+.feature-card {
+  background: linear-gradient(135deg, rgba(20,10,46,0.9), rgba(13,8,32,0.9));
+  border: 1px solid rgba(124,58,237,0.2);
+  border-radius: 8px;
+  padding: 1.8rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, transform 0.3s;
+  cursor: default;
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--gradient, linear-gradient(90deg, var(--purple), var(--violet)));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.feature-card:hover {
+  border-color: rgba(168,85,247,0.5);
+  transform: translateY(-4px);
+}
+.feature-card:hover::before { opacity: 1; }
+
+.feature-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.feature-name {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #e2d9f3;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.feature-desc {
+  color: #9585b8;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+/* ── CLASSES ── */
+.classes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-top: 3rem;
+}
+
+.class-card {
+  border-radius: 8px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  border: 1.5px solid;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s, box-shadow 0.3s;
+  cursor: pointer;
+}
+
+.class-card:hover {
+  transform: scale(1.03);
+}
+
+.class-knight { border-color: rgba(180,120,30,0.5); background: rgba(100,60,0,0.18); }
+.class-knight:hover { box-shadow: 0 0 40px rgba(245,166,35,0.3); }
+
+.class-mage { border-color: rgba(59,130,246,0.5); background: rgba(30,60,140,0.18); }
+.class-mage:hover { box-shadow: 0 0 40px rgba(59,130,246,0.3); }
+
+.class-rogue { border-color: rgba(34,197,94,0.5); background: rgba(0,80,30,0.18); }
+.class-rogue:hover { box-shadow: 0 0 40px rgba(34,197,94,0.3); }
+
+.class-shaman { border-color: rgba(251,146,60,0.5); background: rgba(100,40,0,0.18); }
+.class-shaman:hover { box-shadow: 0 0 40px rgba(251,146,60,0.3); }
+
+.class-icon { font-size: 3rem; margin-bottom: 1rem; display: block; }
+.class-name {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.8rem;
+}
+.class-stats {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  color: #9585b8;
+  margin-bottom: 0.8rem;
+  line-height: 1.8;
+}
+.class-skill {
+  font-size: 0.85rem;
+  color: #c4b5d4;
+  font-style: italic;
+}
+
+/* ── SYSTEMS DIAGRAM ── */
+.systems-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 3rem;
+}
+
+@media (max-width: 700px) {
+  .systems-grid { grid-template-columns: 1fr; }
+}
+
+.system-block {
+  background: rgba(13,8,32,0.8);
+  border: 1px solid rgba(34,211,238,0.2);
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+.system-block h3 {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 1rem;
+}
+.system-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 0.9rem;
+  color: #c4b5d4;
+}
+.system-item:last-child { border-bottom: none; }
+.system-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+/* ── KEY BINDINGS ── */
+.keybinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.8rem;
+  margin-top: 2rem;
+}
+
+.keybind {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 0.9rem;
+}
+
+kbd {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  background: rgba(124,58,237,0.2);
+  border: 1px solid rgba(168,85,247,0.5);
+  border-radius: 3px;
+  padding: 0.25rem 0.5rem;
+  color: var(--violet);
+  white-space: nowrap;
+}
+
+/* ── DOMAIN SYSTEM ── */
+.domain-showcase {
+  position: relative;
+  background: radial-gradient(ellipse at center, rgba(124,58,237,0.15) 0%, transparent 70%);
+  border: 1px solid rgba(168,85,247,0.25);
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  margin-top: 3rem;
+  text-align: center;
+  overflow: hidden;
+}
+
+.domain-ring {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 2px solid rgba(168,85,247,0.6);
+  margin: 0 auto 2rem;
+  position: relative;
+  animation: domainSpin 8s linear infinite;
+  box-shadow: 0 0 40px rgba(124,58,237,0.4), inset 0 0 40px rgba(124,58,237,0.1);
+}
+.domain-ring::before {
+  content: '';
+  position: absolute;
+  inset: 15px;
+  border-radius: 50%;
+  border: 1px solid rgba(168,85,247,0.3);
+  animation: domainSpin 5s linear infinite reverse;
+}
+.domain-ring::after {
+  content: '⚫';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  font-size: 3rem;
+  filter: drop-shadow(0 0 20px rgba(168,85,247,1));
+}
+
+.domain-levels {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.domain-level {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.dl-1 { background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.4); color: var(--violet); }
+.dl-10 { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.4); color: #93c5fd; }
+.dl-25 { background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,0.4); color: #fca5a5; }
+.dl-50 { background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.4); color: #fcd34d; }
+.dl-100 { background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.5); color: #f87171; }
+.dl-250 { background: rgba(34,211,238,0.15); border: 1px solid rgba(34,211,238,0.5); color: var(--cyan); }
+.dl-999 { background: linear-gradient(90deg, rgba(168,85,247,0.3), rgba(245,166,35,0.3)); border: 1px solid var(--gold); color: var(--gold); font-weight: 700; }
+
+/* ── COMBAT DEMO ── */
+.combat-demo {
+  margin-top: 3rem;
+  background: rgba(10,5,25,0.9);
+  border: 1px solid rgba(168,85,247,0.2);
+  border-radius: 8px;
+  padding: 1.5rem;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.78rem;
+  line-height: 1.9;
+  position: relative;
+  overflow: hidden;
+}
+
+.combat-demo::before {
+  content: '● GAME LOG';
+  position: absolute;
+  top: 0.8rem; left: 1.2rem;
+  font-size: 0.55rem;
+  letter-spacing: 0.3em;
+  color: var(--violet);
+}
+
+.log-line { opacity: 0; animation: logAppear 0.5s ease forwards; }
+.log-line.l1  { animation-delay: 0.3s; }
+.log-line.l2  { animation-delay: 0.9s; }
+.log-line.l3  { animation-delay: 1.5s; }
+.log-line.l4  { animation-delay: 2.1s; }
+.log-line.l5  { animation-delay: 2.7s; }
+.log-line.l6  { animation-delay: 3.3s; }
+.log-line.l7  { animation-delay: 3.9s; }
+.log-line.l8  { animation-delay: 4.5s; }
+.log-line.l9  { animation-delay: 5.1s; }
+
+.c-gold   { color: var(--gold); }
+.c-violet { color: var(--violet); }
+.c-red    { color: #f87171; }
+.c-green  { color: var(--green); }
+.c-cyan   { color: var(--cyan); }
+.c-gray   { color: #6b7280; }
+
+/* ── BUILD SECTION ── */
+.build-block {
+  background: rgba(5,2,15,0.95);
+  border: 1px solid rgba(34,211,238,0.25);
+  border-radius: 6px;
+  padding: 1.5rem 1.8rem;
+  margin-top: 1.5rem;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.78rem;
+  position: relative;
+  overflow: hidden;
+}
+.build-block::before {
+  content: 'SHELL';
+  position: absolute;
+  top: 0.6rem; right: 1rem;
+  font-size: 0.55rem;
+  letter-spacing: 0.3em;
+  color: var(--cyan);
+}
+.build-block .prompt { color: var(--green); }
+.build-block .cmd    { color: #e2d9f3; }
+.build-block .cmt    { color: #4b5563; }
+
+/* ── CAUSALITY PANEL ── */
+.causality-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 2rem;
+}
+.rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background: rgba(13,8,32,0.7);
+  border-left: 3px solid;
+  padding: 0.9rem 1.2rem;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.88rem;
+}
+.rule-and { border-color: var(--violet); }
+.rule-or  { border-color: var(--cyan); }
+.rule-pri { border-color: var(--gold); }
+.rule-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border-radius: 2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lbl-and { background: rgba(168,85,247,0.2); color: var(--violet); }
+.lbl-or  { background: rgba(34,211,238,0.15); color: var(--cyan); }
+.lbl-pri { background: rgba(245,166,35,0.15); color: var(--gold); }
+.rule-text { color: #c4b5d4; line-height: 1.5; }
+
+/* ── FOOTER ── */
+footer {
+  position: relative;
+  z-index: 1;
+  border-top: 1px solid rgba(124,58,237,0.2);
+  padding: 3rem 2rem;
+  text-align: center;
+}
+.footer-title {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 1.2rem;
+  color: var(--violet);
+  margin-bottom: 0.5rem;
+}
+.footer-sub {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  color: #4b5563;
+  letter-spacing: 0.15em;
+}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeSlideDown {
+  from { opacity:0; transform: translateY(-20px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+@keyframes titlePulse {
+  0%,100% { filter: drop-shadow(0 0 40px rgba(124,58,237,0.5)); }
+  50%      { filter: drop-shadow(0 0 80px rgba(168,85,247,0.9)); }
+}
+@keyframes scrollArrow {
+  0%,100% { opacity:0.3; transform: scaleY(0.8); }
+  50%      { opacity:1; transform: scaleY(1.2); }
+}
+@keyframes domainSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes logAppear {
+  from { opacity:0; transform: translateX(-8px); }
+  to   { opacity:1; transform: translateX(0); }
+}
+
+/* ── REVEAL ON SCROLL ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── DIVIDER ── */
+.divider {
+  position: relative;
+  z-index: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(124,58,237,0.4), transparent);
+  margin: 0 4rem;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 600px) {
+  .features-grid { grid-template-columns: 1fr; }
+  .classes-grid  { grid-template-columns: 1fr 1fr; }
+  .cta-group     { flex-direction: column; align-items: center; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="starCanvas"></canvas>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  HERO                                                          -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <span class="realm-badge">v3.0 Ascendant · OpenGL 3.3 · C++17</span>
+  <h1 class="hero-title">ShadowRealm</h1>
+  <h2 class="hero-sub">3D Open World MMORPG</h2>
+  <p class="hero-desc">
+    A fully self-contained C++ action RPG with real-time 3D rendering, PCF shadow mapping,
+    Blinn-Phong lighting, a day/night cycle, AI state machines, a Causality engine,
+    NFT gear, and an Infinite Devouring Domain system pushing to Level 999.
+  </p>
+  <div class="hero-tags">
+    <span class="tag tag-purple">OpenGL 3.3</span>
+    <span class="tag tag-gold">C++17</span>
+    <span class="tag tag-cyan">GLFW · GLM</span>
+    <span class="tag tag-red">Dear ImGui</span>
+    <span class="tag tag-green">PCF Shadows</span>
+    <span class="tag tag-purple">Particle System</span>
+    <span class="tag tag-gold">Day/Night Cycle</span>
+    <span class="tag tag-cyan">Enemy State Machine</span>
+    <span class="tag tag-red">NFT Inventory</span>
+    <span class="tag tag-green">Causality Engine v2</span>
+  </div>
+  <div class="cta-group">
+    <a href="#build" class="btn btn-primary">⚔ Build & Play</a>
+    <a href="#features" class="btn btn-secondary">✦ See Features</a>
+  </div>
+
+  <div class="scroll-hint">
+    <span>Scroll</span>
+    <div class="scroll-arrow"></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  COMBAT LOG DEMO                                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section>
+  <div class="section-inner">
+    <div class="combat-demo" style="padding-top:2.5rem">
+      <div class="log-line l1"><span class="c-gold">⚔ Welcome to ShadowRealm 3D v3.0!</span></div>
+      <div class="log-line l2"><span class="c-gray">[Causality v2] 10 rules loaded. Priority ordering: ON</span></div>
+      <div class="log-line l3"><span class="c-violet">INFINITE DEVOURING DOMAIN!</span> <span class="c-gray">Range:12u Lv:1/999</span></div>
+      <div class="log-line l4">🏆 <span class="c-green">Shadow King defeated! +80XP +45CC</span></div>
+      <div class="log-line l5">✨ <span class="c-gold">NFT DROP: [Legendary] Celestial Reaper +320ATK val:480CC</span></div>
+      <div class="log-line l6">🎉 <span class="c-gold">LEVEL UP! LV 10</span> — <span class="c-violet">Boss reinforcements!</span></div>
+      <div class="log-line l7"><span class="c-red">TRIPLE KILL!</span> <span class="c-gray">Kill streak: 3</span></div>
+      <div class="log-line l8"><span class="c-violet">Domain Lv 25/999!</span> <span class="c-gray">Void Erasure unlocked</span></div>
+      <div class="log-line l9"><span class="c-cyan">☢ TERATON BOMB!</span> <span class="c-gray">Radius: 30u — 6 enemies obliterated</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></d
