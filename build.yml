@@ -1,0 +1,169 @@
+name: ShadowRealm 3D CI
+
+on:
+  push:
+    branches: [main, dev, release/**]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ── Linux (Ubuntu) ──────────────────────────────────────────────
+  build-linux:
+    name: Linux (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libglfw3-dev libgl1-mesa-dev libglu1-mesa-dev \
+            xvfb cmake build-essential git curl unzip
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            imgui
+            glm
+            glad
+          key: deps-linux-${{ hashFiles('setup.sh') }}
+
+      - name: Clone ImGui
+        run: |
+          if [ ! -d imgui ]; then
+            git clone --depth=1 --branch v1.91.1 \
+              https://github.com/ocornut/imgui.git imgui
+          fi
+
+      - name: Clone GLM
+        run: |
+          if [ ! -d glm ]; then
+            git clone --depth=1 --branch 1.0.1 \
+              https://github.com/g-truc/glm.git glm
+          fi
+
+      - name: Extract GLAD
+        run: |
+          if [ -f glad.zip ]; then
+            unzip -q glad.zip -d glad_tmp
+            if [ -f glad_tmp/include/glad/gl.h ]; then
+              mkdir -p include
+              cp -r glad_tmp/include/glad include/
+              cp glad_tmp/src/gl.c .
+            elif [ -f glad_tmp/glad/src/gl.c ]; then
+              cp -r glad_tmp/glad .
+            fi
+            rm -rf glad_tmp
+          fi
+
+      - name: Configure (Release)
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          cmake --build build --config Release -j$(nproc)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowrealm-linux
+          path: build/bin/shadowrealm
+          if-no-files-found: warn
+
+  # ── macOS ────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS (14 arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies via Homebrew
+        run: |
+          brew install glfw glm cmake
+
+      - name: Cache ImGui
+        uses: actions/cache@v4
+        with:
+          path: imgui
+          key: imgui-v1.91.1
+
+      - name: Clone ImGui
+        run: |
+          if [ ! -d imgui ]; then
+            git clone --depth=1 --branch v1.91.1 \
+              https://github.com/ocornut/imgui.git imgui
+          fi
+
+      - name: Extract GLAD
+        run: |
+          if [ -f glad.zip ]; then
+            unzip -q glad.zip -d glad_tmp
+            if [ -f glad_tmp/include/glad/gl.h ]; then
+              mkdir -p include && cp -r glad_tmp/include/glad include/
+              cp glad_tmp/src/gl.c .
+            fi
+            rm -rf glad_tmp
+          fi
+
+      - name: Configure & Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowrealm-macos
+          path: build/bin/shadowrealm
+          if-no-files-found: warn
+
+  # ── Windows ──────────────────────────────────────────────────────
+  build-windows:
+    name: Windows (MSVC 2022)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install vcpkg dependencies
+        run: |
+          vcpkg install glfw3 glm opengl --triplet x64-windows
+
+      - name: Clone ImGui
+        run: |
+          if (-not (Test-Path imgui)) {
+            git clone --depth=1 --branch v1.91.1 `
+              https://github.com/ocornut/imgui.git imgui
+          }
+        shell: powershell
+
+      - name: Extract GLAD
+        run: |
+          if (Test-Path glad.zip) {
+            Expand-Archive glad.zip -DestinationPath glad_tmp
+            if (Test-Path glad_tmp/include/glad/gl.h) {
+              New-Item -ItemType Directory -Force include | Out-Null
+              Copy-Item -Recurse glad_tmp/include/glad include/
+              Copy-Item glad_tmp/src/gl.c .
+            }
+            Remove-Item -Recurse glad_tmp
+          }
+        shell: powershell
+
+      - name: Configure & Build
+        run: |
+          cmake -B build `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+          cmake --build build --config Release
+        shell: powershell
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowrealm-windows
+          path: build/Release/shadowrealm.exe
+          if-no-files-found: warn
