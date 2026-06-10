@@ -1,0 +1,169 @@
+name: Build ShadowRealm 3D
+
+on: [push, pull_request]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libglfw3-dev libglm-dev libx11-dev pkg-config python3-pip
+
+      - name: Install jinja2
+        run: pip install jinja2
+
+      - name: Download GLM
+        run: |
+          git clone --depth 1 https://github.com/g-truc/glm.git glm_tmp
+          mkdir -p glm && mv glm_tmp/glm glm/glm && rm -rf glm_tmp
+
+      - name: Download ImGui
+        run: |
+          git clone --depth 1 https://github.com/ocornut/imgui.git imgui_tmp
+          mkdir -p imgui/backends
+          cp imgui_tmp/imgui.h imgui/
+          cp imgui_tmp/imgui.cpp imgui/
+          cp imgui_tmp/imgui_draw.cpp imgui/
+          cp imgui_tmp/imgui_tables.cpp imgui/
+          cp imgui_tmp/imgui_widgets.cpp imgui/
+          cp imgui_tmp/imgui_internal.h imgui/
+          cp imgui_tmp/imconfig.h imgui/
+          cp imgui_tmp/imstb_rectpack.h imgui/
+          cp imgui_tmp/imstb_textedit.h imgui/
+          cp imgui_tmp/imstb_truetype.h imgui/
+          cp imgui_tmp/backends/imgui_impl_glfw.h imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_glfw.cpp imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3.h imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3.cpp imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3_loader.h imgui/backends/
+          rm -rf imgui_tmp
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadowrealm-linux
+          path: build/shadowrealm
+          retention-days: 30
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install cmake glfw
+
+      - name: Install jinja2
+        run: pip3 install jinja2 --break-system-packages
+
+      - name: Download GLM
+        run: |
+          git clone --depth 1 https://github.com/g-truc/glm.git glm_tmp
+          mkdir -p glm && mv glm_tmp/glm glm/glm && rm -rf glm_tmp
+
+      - name: Download ImGui
+        run: |
+          git clone --depth 1 https://github.com/ocornut/imgui.git imgui_tmp
+          mkdir -p imgui/backends
+          cp imgui_tmp/imgui.h imgui/
+          cp imgui_tmp/imgui.cpp imgui/
+          cp imgui_tmp/imgui_draw.cpp imgui/
+          cp imgui_tmp/imgui_tables.cpp imgui/
+          cp imgui_tmp/imgui_widgets.cpp imgui/
+          cp imgui_tmp/imgui_internal.h imgui/
+          cp imgui_tmp/imconfig.h imgui/
+          cp imgui_tmp/imstb_rectpack.h imgui/
+          cp imgui_tmp/imstb_textedit.h imgui/
+          cp imgui_tmp/imstb_truetype.h imgui/
+          cp imgui_tmp/backends/imgui_impl_glfw.h imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_glfw.cpp imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3.h imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3.cpp imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3_loader.h imgui/backends/
+          rm -rf imgui_tmp
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadowrealm-macos
+          path: build/shadowrealm
+          retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Install jinja2
+        run: pip install jinja2
+
+      - name: Install GLFW (Windows)
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 3.4 https://github.com/glfw/glfw.git glfw_src
+          cmake -S glfw_src -B glfw_build -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+          cmake --build glfw_build --config Release
+          cmake --install glfw_build --prefix C:/glfw
+          rm -rf glfw_src glfw_build
+
+      - name: Download GLM
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/g-truc/glm.git glm_tmp
+          mkdir -p glm && mv glm_tmp/glm glm/glm && rm -rf glm_tmp
+
+      - name: Download ImGui
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/ocornut/imgui.git imgui_tmp
+          mkdir -p imgui/backends
+          cp imgui_tmp/imgui.h imgui/
+          cp imgui_tmp/imgui.cpp imgui/
+          cp imgui_tmp/imgui_draw.cpp imgui/
+          cp imgui_tmp/imgui_tables.cpp imgui/
+          cp imgui_tmp/imgui_widgets.cpp imgui/
+          cp imgui_tmp/imgui_internal.h imgui/
+          cp imgui_tmp/imconfig.h imgui/
+          cp imgui_tmp/imstb_rectpack.h imgui/
+          cp imgui_tmp/imstb_textedit.h imgui/
+          cp imgui_tmp/imstb_truetype.h imgui/
+          cp imgui_tmp/backends/imgui_impl_glfw.h imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_glfw.cpp imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3.h imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3.cpp imgui/backends/
+          cp imgui_tmp/backends/imgui_impl_opengl3_loader.h imgui/backends/
+          rm -rf imgui_tmp
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja \
+            -DCMAKE_C_COMPILER=C:/mingw64/bin/gcc.exe \
+            -DCMAKE_CXX_COMPILER=C:/mingw64/bin/g++.exe \
+            -Dglfw3_DIR=C:/glfw/lib/cmake/glfw3
+
+      - name: Build
+        run: cmake --build build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadowrealm-windows
+          path: build/shadowrealm.exe
+          retention-days: 30
