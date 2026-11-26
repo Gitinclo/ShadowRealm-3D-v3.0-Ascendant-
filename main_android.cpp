@@ -19,16 +19,20 @@
 // ========================================================================
 
 #include <android_native_app_glue.h>
+#include <android/input.h>
+#include <android/log.h>
 #include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/noise.hpp>
+#include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <numeric>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -299,7 +303,7 @@ Mesh makeCube() {
         0.5f,-0.5f,-0.5f, 0,-1,0, 1,0,  0.5f,-0.5f, 0.5f, 0,-1,0, 1,1
     };
     std::vector<unsigned> idx;
-    for(int i=0;i<36;i+=4) { idx.push_back(i); idx.push_back(i+1); idx.push_back(i+2);
+    for(int i=0;i<24;i+=4) { idx.push_back(i); idx.push_back(i+1); idx.push_back(i+2);
                              idx.push_back(i); idx.push_back(i+2); idx.push_back(i+3); }
     Mesh m; m.create(verts, idx); return m;
 }
@@ -436,9 +440,15 @@ public:
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_COMPARE_MODE,GL_COMPARE_REF_TO_TEXTURE);
         glBindFramebuffer(GL_FRAMEBUFFER,shadowFbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_2D,shadowMap,0);
-        glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);
+        GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+        glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER,0);
     }
+    Mesh* getCubeMesh() { return &cubeMesh; }
+    Mesh* getSphereMesh() { return &sphereMesh; }
+    int width() const { return w; }
+    int height() const { return h; }
     void beginShadowPass(const glm::vec3& lightDir) {
         glm::mat4 lightProj = glm::ortho(-60.0f,60.0f,-60.0f,60.0f,0.1f,200.0f);
         glm::mat4 lightView = glm::lookAt(-lightDir*80.0f, glm::vec3(0), glm::vec3(0,1,0));
@@ -515,123 +525,285 @@ public:
 // ------------------------------------------------------------------------
 class Game {
     android_app* app;
-    EGLDisplay display;
-    EGLSurface surface;
-    EGLContext context;
-    Renderer* renderer=nullptr;
+    EGLDisplay display = EGL_NO_DISPLAY;
+    EGLSurface surface = EGL_NO_SURFACE;
+    EGLContext context = EGL_NO_CONTEXT;
+    int screenW = SCR_W;
+    int screenH = SCR_H;
+    bool initialized = false;
+    Renderer* renderer = nullptr;
     std::vector<Entity*> entities;
-    Entity* player=nullptr;
+    Entity* player = nullptr;
     PerlinNoise noise;
-    float camYaw=-2.3f, camPitch=0.4f, camDist=8.0f;
-    glm::vec3 playerPos{0,10,0};
-    float timeSinceLastFrame=0;
-    float moveX=0, moveZ=0;
-    bool jumping=false;
-    float yVelocity=0;
-    bool onGround=true;
-    float skillCdAttack=0, skillCdPower=0, skillCdHeal=0;
-    // touch controls
-    bool touchActive=false;
-    float touchStartX=0, touchStartY=0;
-    float joyX=0, joyY=0;
+    float camYaw = -2.3f, camPitch = 0.4f, camDist = 8.0f;
+    glm::vec3 playerPos{0, 10, 0};
+    float moveX = 0, moveZ = 0;
+    bool jumping = false;
+    float yVelocity = 0;
+    bool onGround = true;
+    float skillCdAttack = 0, skillCdPower = 0, skillCdHeal = 0;
+    // Touch controls state
+    int32_t movePointerId = -1;
+    int32_t lookPointerId = -1;
+    float moveOriginX = 0, moveOriginY = 0;
+    float lastLookX = 0, lastLookY = 0;
+
+    static void onAppCmd(android_app* app, int32_t cmd) {
+        auto* self = static_cast<Game*>(app->userData);
+        if (!self) return;
+        if (cmd == APP_CMD_INIT_WINDOW && app->window) {
+            if (self->initDisplay()) {
+                self->initGame();
+            }
+        } else if (cmd == APP_CMD_TERM_WINDOW) {
+            self->shutdownDisplay();
+        }
+    }
+
+    static int32_t onInputEvent(android_app* app, AInputEvent* event) {
+        auto* self = static_cast<Game*>(app->userData);
+        return self ? self->handleInputEvent(event) : 0;
+    }
+
 public:
-    Game(android_app* a) : app(a) {}
-    ~Game() { if(renderer) delete renderer; }
+    explicit Game(android_app* a) : app(a) {}
+    ~Game() {
+        shutdownDisplay();
+        for (Entity* e : entities) delete e;
+        entities.clear();
+    }
+
     bool initDisplay() {
+        if (!app->window) return false;
         display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        if(display==EGL_NO_DISPLAY) return false;
-        eglInitialize(display, nullptr, nullptr);
-        const EGLint configAttribs[] = { EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-                                         EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE,8, EGL_RED_SIZE,8, EGL_ALPHA_SIZE,8,
-                                         EGL_DEPTH_SIZE,24, EGL_STENCIL_SIZE,8, EGL_NONE };
-        EGLConfig config; EGLint numConfigs;
-        eglChooseConfig(display, configAttribs, &config, 1, &numConfigs);
+        if (display == EGL_NO_DISPLAY) return false;
+        if (!eglInitialize(display, nullptr, nullptr)) return false;
+        const EGLint configAttribs[] = {
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+            EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_ALPHA_SIZE, 8,
+            EGL_DEPTH_SIZE, 24, EGL_STENCIL_SIZE, 8,
+            EGL_NONE
+        };
+        EGLConfig config = nullptr;
+        EGLint numConfigs = 0;
+        if (!eglChooseConfig(display, configAttribs, &config, 1, &numConfigs) || numConfigs == 0) {
+            return false;
+        }
         EGLint ctxAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
         context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctxAttribs);
         surface = eglCreateWindowSurface(display, config, app->window, nullptr);
-        eglMakeCurrent(display, surface, surface, context);
+        if (context == EGL_NO_CONTEXT || surface == EGL_NO_SURFACE) return false;
+        if (!eglMakeCurrent(display, surface, surface, context)) return false;
+        eglQuerySurface(display, surface, EGL_WIDTH, &screenW);
+        eglQuerySurface(display, surface, EGL_HEIGHT, &screenH);
+        if (screenW <= 0) screenW = SCR_W;
+        if (screenH <= 0) screenH = SCR_H;
         return true;
     }
+
+    void shutdownDisplay() {
+        initialized = false;
+        if (renderer) {
+            delete renderer;
+            renderer = nullptr;
+        }
+        if (display != EGL_NO_DISPLAY) {
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if (context != EGL_NO_CONTEXT) eglDestroyContext(display, context);
+            if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface);
+            eglTerminate(display);
+        }
+        display = EGL_NO_DISPLAY;
+        surface = EGL_NO_SURFACE;
+        context = EGL_NO_CONTEXT;
+    }
+
     void initGame() {
-        renderer = new Renderer(SCR_W, SCR_H);
+        for (Entity* e : entities) delete e;
+        entities.clear();
+        renderer = new Renderer(screenW, screenH);
         // Player entity
         player = new Entity();
-        auto* pt = player->add<Transform>(); pt->pos = glm::vec3(0,10,0); pt->scale = glm::vec3(0.6f,1.2f,0.6f);
-        auto* pr = player->add<Renderable>(); pr->mesh = &makeCube(); pr->color = glm::vec3(0.7f,0.5f,0.3f); pr->roughness=0.3f;
-        player->add<Health>()->hp=100; player->add<PlayerTag>();
+        auto* pt = player->add<Transform>();
+        pt->pos = glm::vec3(0, 10, 0);
+        pt->scale = glm::vec3(0.6f, 1.2f, 0.6f);
+        auto* pr = player->add<Renderable>();
+        pr->mesh = renderer->getCubeMesh();
+        pr->color = glm::vec3(0.7f, 0.5f, 0.3f);
+        pr->roughness = 0.3f;
+        player->add<Health>()->hp = 100;
+        player->add<PlayerTag>();
         entities.push_back(player);
         // Enemies
-        for(int i=0;i<12;i++) {
+        for (int i = 0; i < 12; i++) {
             auto* e = new Entity();
-            float ang = randf(0,6.283f), rad = randf(20,50);
-            glm::vec3 pos(cosf(ang)*rad, heightAt(cosf(ang)*rad, sinf(ang)*rad, noise)+0.8f, sinf(ang)*rad);
-            auto* t = e->add<Transform>(); t->pos = pos; t->scale = glm::vec3(0.5f);
-            auto* r = e->add<Renderable>(); r->mesh = &makeSphere(0.5f,8,6); r->color = glm::vec3(0.8f,0.2f,0.2f);
-            auto* h = e->add<Health>(); h->hp = 50 + randi(0,30); h->maxHp = h->hp;
-            auto* ai = e->add<AI>(); ai->level = 1+randi(0,3);
+            float ang = randf(0, 6.283f), rad = randf(20, 50);
+            glm::vec3 pos(cosf(ang) * rad, heightAt(cosf(ang) * rad, sinf(ang) * rad, noise) + 0.8f, sinf(ang) * rad);
+            auto* t = e->add<Transform>();
+            t->pos = pos;
+            t->scale = glm::vec3(0.5f);
+            auto* r = e->add<Renderable>();
+            r->mesh = renderer->getSphereMesh();
+            r->color = glm::vec3(0.8f, 0.2f, 0.2f);
+            auto* h = e->add<Health>();
+            h->hp = 50 + randi(0, 30);
+            h->maxHp = h->hp;
+            auto* ai = e->add<AI>();
+            ai->level = 1 + randi(0, 3);
             entities.push_back(e);
         }
+        initialized = true;
     }
-    void handleInput() {
-        // Process touch events from android_app
-        android_input* input = app->inputQueue? nullptr:nullptr;
-        // Simplified: assume touch left half = joystick, right half = look
-        // Real implementation would poll app->inputQueue. For brevity we simulate.
-        // In a real app you'd read touch events and set moveX/Z and yaw/pitch.
-        // I'll add a basic mouse/keyboard fallback via ADB for debugging.
+
+    int32_t handleInputEvent(AInputEvent* event) {
+        if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION) return 0;
+        int32_t action = AMotionEvent_getAction(event);
+        int32_t masked = action & AMOTION_EVENT_ACTION_MASK;
+        int32_t pointerIdx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+        int32_t pointerId = AMotionEvent_getPointerId(event, pointerIdx);
+        float halfW = static_cast<float>(screenW) * 0.5f;
+
+        if (masked == AMOTION_EVENT_ACTION_DOWN || masked == AMOTION_EVENT_ACTION_POINTER_DOWN) {
+            float x = AMotionEvent_getX(event, pointerIdx);
+            float y = AMotionEvent_getY(event, pointerIdx);
+            if (x < halfW && movePointerId < 0) {
+                movePointerId = pointerId;
+                moveOriginX = x;
+                moveOriginY = y;
+            } else if (x >= halfW && lookPointerId < 0) {
+                lookPointerId = pointerId;
+                lastLookX = x;
+                lastLookY = y;
+                if (y > static_cast<float>(screenH) * 0.75f && onGround) {
+                    jumping = true;
+                }
+            }
+            return 1;
+        }
+        if (masked == AMOTION_EVENT_ACTION_UP || masked == AMOTION_EVENT_ACTION_POINTER_UP || masked == AMOTION_EVENT_ACTION_CANCEL) {
+            if (pointerId == movePointerId) {
+                movePointerId = -1;
+                moveX = 0.0f;
+                moveZ = 0.0f;
+            } else if (pointerId == lookPointerId) {
+                lookPointerId = -1;
+            }
+            return 1;
+        }
+        if (masked == AMOTION_EVENT_ACTION_MOVE) {
+            size_t count = AMotionEvent_getPointerCount(event);
+            for (size_t i = 0; i < count; ++i) {
+                int32_t id = AMotionEvent_getPointerId(event, i);
+                float x = AMotionEvent_getX(event, i);
+                float y = AMotionEvent_getY(event, i);
+                if (id == movePointerId) {
+                    float dx = (x - moveOriginX) / 140.0f;
+                    float dy = (y - moveOriginY) / 140.0f;
+                    moveX = std::clamp(dx, -1.0f, 1.0f);
+                    moveZ = std::clamp(dy, -1.0f, 1.0f);
+                } else if (id == lookPointerId) {
+                    camYaw -= (x - lastLookX) * MOUSE_SENS;
+                    camPitch = std::clamp(camPitch + (y - lastLookY) * MOUSE_SENS, 0.1f, 1.2f);
+                    lastLookX = x;
+                    lastLookY = y;
+                }
+            }
+            return 1;
+        }
+        return 0;
     }
+
     void update(float dt) {
-        // Movement
+        if (!initialized || !renderer || !player) return;
+        // Camera-relative movement
+        glm::vec3 forward(-sinf(camYaw), 0.0f, -cosf(camYaw));
+        glm::vec3 right(cosf(camYaw), 0.0f, -sinf(camYaw));
+        glm::vec3 wish = right * moveX - forward * moveZ;
+        if (glm::length(wish) > 1.0f) wish = glm::normalize(wish);
         float speed = PLAYER_SPEED * dt;
-        playerPos.x += moveX * speed;
-        playerPos.z += moveZ * speed;
+        playerPos.x += wish.x * speed;
+        playerPos.z += wish.z * speed;
+
         float groundY = heightAt(playerPos.x, playerPos.z, noise) + 1.2f;
-        if(!jumping) yVelocity += GRAVITY*dt;
-        playerPos.y += yVelocity*dt;
-        if(playerPos.y <= groundY) { playerPos.y = groundY; yVelocity=0; onGround=true; jumping=false; }
-        else onGround=false;
-        if(jumping && onGround) { yVelocity = JUMP_VEL; onGround=false; jumping=false; }
+        if (jumping && onGround) {
+            yVelocity = JUMP_VEL;
+            onGround = false;
+            jumping = false;
+        }
+        yVelocity += GRAVITY * dt;
+        playerPos.y += yVelocity * dt;
+        if (playerPos.y <= groundY) {
+            playerPos.y = groundY;
+            yVelocity = 0;
+            onGround = true;
+        } else {
+            onGround = false;
+        }
         player->get<Transform>()->pos = playerPos;
         // Update skills cooldown
-        if(skillCdAttack>0) skillCdAttack-=dt;
-        if(skillCdPower>0) skillCdPower-=dt;
-        if(skillCdHeal>0) skillCdHeal-=dt;
+        if (skillCdAttack > 0) skillCdAttack -= dt;
+        if (skillCdPower > 0) skillCdPower -= dt;
+        if (skillCdHeal > 0) skillCdHeal -= dt;
         // Enemy AI
-        for(auto* e: entities) {
-            if(e==player) continue;
-            auto* t = e->get<Transform>(); auto* ai = e->get<AI>(); auto* h = e->get<Health>();
-            if(!t || !ai || !h || h->hp<=0) continue;
+        for (auto* e : entities) {
+            if (e == player) continue;
+            auto* t = e->get<Transform>();
+            auto* ai = e->get<AI>();
+            auto* h = e->get<Health>();
+            if (!t || !ai || !h || h->hp <= 0) continue;
             glm::vec3 dir = playerPos - t->pos;
             float dist = glm::length(dir);
-            if(dist < 20) {
-                dir.y=0; dir = glm::normalize(dir);
-                t->pos += dir * ai->speed * dt;
+            if (dist < 20.0f) {
+                dir.y = 0;
+                float planarLen = glm::length(dir);
+                if (planarLen > 1e-4f) {
+                    t->pos += (dir / planarLen) * ai->speed * dt;
+                }
             }
-            if(dist < ai->attackRange && ai->attackCd<=0 && skillCdAttack<=0) {
-                h->hp -= 15 + ai->level*3;
-                if(h->hp<=0) { /* enemy dies */ }
-                ai->attackCd=1.2f;
+            if (dist < ai->attackRange && ai->attackCd <= 0 && skillCdAttack <= 0) {
+                h->hp -= 15 + ai->level * 3;
+                ai->attackCd = 1.2f;
             }
-            if(ai->attackCd>0) ai->attackCd-=dt;
+            if (ai->attackCd > 0) ai->attackCd -= dt;
         }
         // Camera
-        glm::vec3 offset( sinf(camYaw)*camDist*cosf(camPitch), sinf(camPitch)*camDist+2.0f, cosf(camYaw)*camDist*cosf(camPitch) );
+        glm::vec3 offset(
+            sinf(camYaw) * camDist * cosf(camPitch),
+            sinf(camPitch) * camDist + 2.0f,
+            cosf(camYaw) * camDist * cosf(camPitch)
+        );
         glm::vec3 camPos = playerPos + offset;
-        renderer->geometryPass(entities, glm::lookAt(camPos, playerPos+glm::vec3(0,1,0), glm::vec3(0,1,0)), glm::perspective(glm::radians(65.0f),(float)SCR_W/SCR_H,0.3f,300.0f));
-        renderer->lightingPass(camPos, glm::normalize(glm::vec3(1,2,0.5f)), 0.25f);
+        float aspect = static_cast<float>(screenW) / static_cast<float>(screenH);
+        renderer->geometryPass(
+            entities,
+            glm::lookAt(camPos, playerPos + glm::vec3(0, 1, 0), glm::vec3(0, 1, 0)),
+            glm::perspective(glm::radians(65.0f), aspect, 0.3f, 300.0f)
+        );
+        renderer->lightingPass(camPos, glm::normalize(glm::vec3(1, 2, 0.5f)), 0.25f);
         renderer->tonemap(1.2f);
         eglSwapBuffers(display, surface);
     }
+
     void run() {
-        initDisplay();
-        initGame();
+        app->userData = this;
+        app->onAppCmd = onAppCmd;
+        app->onInputEvent = onInputEvent;
         auto lastTime = std::chrono::steady_clock::now();
-        while(!app->destroyRequested) {
+        while (!app->destroyRequested) {
+            int events = 0;
+            android_poll_source* source = nullptr;
+            while (ALooper_pollAll(initialized ? 0 : -1, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0) {
+                if (source) source->process(app, source);
+                if (app->destroyRequested) {
+                    shutdownDisplay();
+                    return;
+                }
+            }
             auto now = std::chrono::steady_clock::now();
             float dt = std::chrono::duration<float>(now - lastTime).count();
             lastTime = now;
-            if(dt>0.05f) dt=0.05f;
-            handleInput();
+            if (dt > 0.05f) dt = 0.05f;
             update(dt);
         }
     }
@@ -641,14 +813,6 @@ public:
 // Android glue entry point
 // ------------------------------------------------------------------------
 void android_main(android_app* app) {
-    app_dummy(); // required
     Game game(app);
     game.run();
 }
-
-// ========== REPEATABLE BLOCK START ==========
-// Copy this block as many times as needed to reach 50k+ lines.
-// Each block adds a completely new system (e.g., another enemy type,
-// more items, a quest, dialogue tree, skill, etc.) with no runtime cost.
-// Just paste it 10 times – each adds ~500 lines.
-// ========== REPEATABLE BLOCK END ==========

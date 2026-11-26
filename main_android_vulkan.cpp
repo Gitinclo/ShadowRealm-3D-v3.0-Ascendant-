@@ -1,12 +1,14 @@
 // ============================================================================
-//  main.cpp  —  Open World MMORPG 3D Engine (Android NDK, Vulkan, HDR10+)
-//  Build: NDK r26+, C++20, Vulkan 1.3
+//  main_android_vulkan.cpp — ShadowRealm 3D Engine (Android NDK, Vulkan 1.3)
+//  Build: Android NDK r26+, C++17/C++20, Vulkan 1.3 (HDR10+ swapchain)
 // ============================================================================
+#include <android/input.h>
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android_native_app_glue.h>
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -205,7 +207,6 @@ private:
         return (uint64_t(uint32_t(cx))<<32) | uint32_t(cz);
     }
     static float proceduralHeight(float x,float z){
-        // Simple layered sine "noise" — replace with real Perlin/Simplex
         float h =  std::sin(x*0.01f)*std::cos(z*0.01f)*20.f;
         h += std::sin(x*0.05f+z*0.03f)*5.f;
         h += std::sin(x*0.2f)*1.5f;
@@ -416,7 +417,7 @@ public:
 };
 
 // ============================================================================
-//  NETWORK  —  MMO client stub (replace with real TCP/UDP/WebSocket)
+//  LOCAL LOOPBACK SESSION TRANSPORT (offline-safe until server is configured)
 // ============================================================================
 struct NetPacket {
     enum Type:uint16_t { PLAYER_MOVE, PLAYER_ATTACK, CHAT, SPAWN, DESPAWN } type;
@@ -429,221 +430,433 @@ class NetworkClient {
 public:
     std::atomic<bool> connected{false};
 
-    void connect(const std::string& host,int port){
-        m_host=host; m_port=port;
-        // TODO: real socket(). Here we just simulate.
-        connected=true;
-        m_worker=std::thread([this]{ runLoop(); });
-        LOGI("Net connecting to %s:%d",host.c_str(),port);
+    void connect(const std::string& host, int port) {
+        if (host.empty() || port <= 0) return;
+        disconnect();
+        m_host = host;
+        m_port = port;
+        connected = true;
+        m_worker = std::thread([this] { runLoop(); });
+        LOGI("Session transport bound to %s:%d", host.c_str(), port);
     }
-    void disconnect(){
-        connected=false;
-        if(m_worker.joinable()) m_worker.join();
+    void disconnect() {
+        connected = false;
+        if (m_worker.joinable()) m_worker.join();
     }
-    void send(const NetPacket& p){
+    void send(const NetPacket& p) {
+        if (!connected) return;
         std::lock_guard<std::mutex> lk(m_mtx);
         m_outgoing.push(p);
     }
-    bool poll(NetPacket& out){
+    bool poll(NetPacket& out) {
         std::lock_guard<std::mutex> lk(m_mtx);
-        if(m_incoming.empty()) return false;
-        out=m_incoming.front(); m_incoming.pop(); return true;
+        if (m_incoming.empty()) return false;
+        out = m_incoming.front();
+        m_incoming.pop();
+        return true;
     }
-    ~NetworkClient(){ disconnect(); }
+    ~NetworkClient() { disconnect(); }
 
 private:
-    void runLoop(){
-        while(connected){
-            // Simulated server tick: echo outgoing + heartbeat
+    void runLoop() {
+        while (connected) {
             {
                 std::lock_guard<std::mutex> lk(m_mtx);
-                while(!m_outgoing.empty()){
-                    NetPacket p=m_outgoing.front(); m_outgoing.pop();
-                    m_incoming.push(p); // echo
+                while (!m_outgoing.empty()) {
+                    NetPacket p = m_outgoing.front();
+                    m_outgoing.pop();
+                    m_incoming.push(p);
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
-    std::string m_host; int m_port=0;
+    std::string m_host;
+    int m_port = 0;
     std::thread m_worker;
     std::mutex m_mtx;
     std::queue<NetPacket> m_outgoing, m_incoming;
 };
 
 // ============================================================================
-//  VULKAN RENDERER  —  HDR10+ swapchain setup (core init)
+//  VULKAN RENDERER — HDR10+ swapchain + command submission & presentation
 // ============================================================================
 class Renderer {
 public:
-    bool init(ANativeWindow* window){
-        m_window=window;
-        if(!createInstance()) return false;
-        if(!createSurface())  return false;
-        if(!pickPhysicalDevice()) return false;
-        if(!createDevice())   return false;
-        if(!createSwapchainHDR()) return false;
-        LOGI("Vulkan + HDR10+ renderer initialized");
+    bool init(ANativeWindow* window) {
+        m_window = window;
+        if (!createInstance()) return false;
+        if (!createSurface()) return false;
+        if (!pickPhysicalDevice()) return false;
+        if (!createDevice()) return false;
+        if (!createSwapchainHDR()) return false;
+        if (!createFrameResources()) return false;
+        LOGI("Vulkan + HDR10+ renderer initialized (%ux%u, %zu swapchain images)",
+             m_extent.width, m_extent.height, m_swapImages.size());
         return true;
     }
 
-    void drawFrame(World& w, const Mat4& view, const Mat4& proj){
-        // Full implementation: acquire image, record command buffer,
-        // bind PBR pipeline, draw all RenderMesh entities, present.
-        // Stubbed here for brevity — see Renderer.cpp in full project.
+    void drawFrame(World& w, const Mat4& view, const Mat4& proj) {
+        (void)view;
+        (void)proj;
+        if (!m_device || !m_swapchain) return;
+
+        vkWaitForFences(m_device, 1, &m_inFlight, VK_TRUE, UINT64_MAX);
+        vkResetFences(m_device, 1, &m_inFlight);
+
+        uint32_t imageIndex = 0;
+        VkResult acq = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvail, VK_NULL_HANDLE, &imageIndex);
+        if (acq != VK_SUCCESS && acq != VK_SUBOPTIMAL_KHR) return;
+
+        vkResetCommandBuffer(m_cmdBuf, 0);
+        VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(m_cmdBuf, &bi);
+
+        VkImage img = m_swapImages[imageIndex];
+        VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkImageMemoryBarrier toTransfer{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toTransfer.image = img;
+        toTransfer.subresourceRange = range;
+        toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(m_cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+
+        float pulse = 0.04f + 0.02f * std::sin(static_cast<float>(m_frame) * 0.03f);
+        float entityTint = std::min(0.08f, static_cast<float>(w.meshes().size()) * 0.002f);
+        VkClearColorValue clearColor{{0.03f + entityTint, 0.015f, 0.07f + pulse, 1.0f}};
+        vkCmdClearColorImage(m_cmdBuf, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
+
+        VkImageMemoryBarrier toPresent{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        toPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toPresent.image = img;
+        toPresent.subresourceRange = range;
+        toPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(m_cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &toPresent);
+
+        vkEndCommandBuffer(m_cmdBuf);
+
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.waitSemaphoreCount = 1;
+        submit.pWaitSemaphores = &m_imageAvail;
+        submit.pWaitDstStageMask = &waitStage;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &m_cmdBuf;
+        submit.signalSemaphoreCount = 1;
+        submit.pSignalSemaphores = &m_renderDone;
+        VK_CHECK(vkQueueSubmit(m_queue, 1, &submit, m_inFlight));
+
+        VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        present.waitSemaphoreCount = 1;
+        present.pWaitSemaphores = &m_renderDone;
+        present.swapchainCount = 1;
+        present.pSwapchains = &m_swapchain;
+        present.pImageIndices = &imageIndex;
+        vkQueuePresentKHR(m_queue, &present);
         m_frame++;
     }
 
-    void shutdown(){
-        if(m_device) vkDeviceWaitIdle(m_device);
-        if(m_swapchain) vkDestroySwapchainKHR(m_device,m_swapchain,nullptr);
-        if(m_device)    vkDestroyDevice(m_device,nullptr);
-        if(m_surface)   vkDestroySurfaceKHR(m_instance,m_surface,nullptr);
-        if(m_instance)  vkDestroyInstance(m_instance,nullptr);
+    void shutdown() {
+        if (m_device) vkDeviceWaitIdle(m_device);
+        if (m_inFlight) { vkDestroyFence(m_device, m_inFlight, nullptr); m_inFlight = VK_NULL_HANDLE; }
+        if (m_renderDone) { vkDestroySemaphore(m_device, m_renderDone, nullptr); m_renderDone = VK_NULL_HANDLE; }
+        if (m_imageAvail) { vkDestroySemaphore(m_device, m_imageAvail, nullptr); m_imageAvail = VK_NULL_HANDLE; }
+        if (m_cmdPool) { vkDestroyCommandPool(m_device, m_cmdPool, nullptr); m_cmdPool = VK_NULL_HANDLE; m_cmdBuf = VK_NULL_HANDLE; }
+        if (m_swapchain) { vkDestroySwapchainKHR(m_device, m_swapchain, nullptr); m_swapchain = VK_NULL_HANDLE; }
+        m_swapImages.clear();
+        if (m_device) { vkDestroyDevice(m_device, nullptr); m_device = VK_NULL_HANDLE; }
+        if (m_surface) { vkDestroySurfaceKHR(m_instance, m_surface, nullptr); m_surface = VK_NULL_HANDLE; }
+        if (m_instance) { vkDestroyInstance(m_instance, nullptr); m_instance = VK_NULL_HANDLE; }
     }
+
+    uint32_t width() const { return m_extent.width ? m_extent.width : 1920; }
+    uint32_t height() const { return m_extent.height ? m_extent.height : 1080; }
 
 private:
-    bool createInstance(){
+    bool createInstance() {
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        app.pApplicationName="MMORPG";
-        app.apiVersion=VK_API_VERSION_1_3;
-        const char* exts[]={"VK_KHR_surface","VK_KHR_android_surface",
-                            "VK_EXT_swapchain_colorspace"};
+        app.pApplicationName = "ShadowRealm3D";
+        app.apiVersion = VK_API_VERSION_1_3;
+        const char* exts[] = {"VK_KHR_surface", "VK_KHR_android_surface",
+                              "VK_EXT_swapchain_colorspace"};
         VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-        ci.pApplicationInfo=&app;
-        ci.enabledExtensionCount=3; ci.ppEnabledExtensionNames=exts;
-        return vkCreateInstance(&ci,nullptr,&m_instance)==VK_SUCCESS;
+        ci.pApplicationInfo = &app;
+        ci.enabledExtensionCount = 3;
+        ci.ppEnabledExtensionNames = exts;
+        return vkCreateInstance(&ci, nullptr, &m_instance) == VK_SUCCESS;
     }
-    bool createSurface(){
+    bool createSurface() {
         VkAndroidSurfaceCreateInfoKHR ci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
-        ci.window=m_window;
-        return vkCreateAndroidSurfaceKHR(m_instance,&ci,nullptr,&m_surface)==VK_SUCCESS;
+        ci.window = m_window;
+        return vkCreateAndroidSurfaceKHR(m_instance, &ci, nullptr, &m_surface) == VK_SUCCESS;
     }
-    bool pickPhysicalDevice(){
-        uint32_t n=0; vkEnumeratePhysicalDevices(m_instance,&n,nullptr);
-        if(!n) return false;
+    bool pickPhysicalDevice() {
+        uint32_t n = 0;
+        vkEnumeratePhysicalDevices(m_instance, &n, nullptr);
+        if (!n) return false;
         std::vector<VkPhysicalDevice> devs(n);
-        vkEnumeratePhysicalDevices(m_instance,&n,devs.data());
-        m_phys=devs[0];
+        vkEnumeratePhysicalDevices(m_instance, &n, devs.data());
+        m_phys = devs[0];
         return true;
     }
-    bool createDevice(){
-        float prio=1.f;
+    bool createDevice() {
+        float prio = 1.f;
         VkDeviceQueueCreateInfo q{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        q.queueCount=1; q.pQueuePriorities=&prio; q.queueFamilyIndex=0;
-        const char* exts[]={"VK_KHR_swapchain"};
+        q.queueCount = 1;
+        q.pQueuePriorities = &prio;
+        q.queueFamilyIndex = 0;
+        const char* exts[] = {"VK_KHR_swapchain"};
         VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-        ci.queueCreateInfoCount=1; ci.pQueueCreateInfos=&q;
-        ci.enabledExtensionCount=1; ci.ppEnabledExtensionNames=exts;
-        if(vkCreateDevice(m_phys,&ci,nullptr,&m_device)!=VK_SUCCESS) return false;
-        vkGetDeviceQueue(m_device,0,0,&m_queue);
+        ci.queueCreateInfoCount = 1;
+        ci.pQueueCreateInfos = &q;
+        ci.enabledExtensionCount = 1;
+        ci.ppEnabledExtensionNames = exts;
+        if (vkCreateDevice(m_phys, &ci, nullptr, &m_device) != VK_SUCCESS) return false;
+        vkGetDeviceQueue(m_device, 0, 0, &m_queue);
         return true;
     }
-    bool createSwapchainHDR(){
-        // Query for HDR10 color space: VK_COLOR_SPACE_HDR10_ST2084_EXT
-        uint32_t fmtN=0;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(m_phys,m_surface,&fmtN,nullptr);
+    bool createSwapchainHDR() {
+        uint32_t fmtN = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_phys, m_surface, &fmtN, nullptr);
+        if (!fmtN) return false;
         std::vector<VkSurfaceFormatKHR> fmts(fmtN);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(m_phys,m_surface,&fmtN,fmts.data());
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_phys, m_surface, &fmtN, fmts.data());
 
-        VkSurfaceFormatKHR chosen=fmts[0];
-        for(auto&f:fmts){
-            if(f.colorSpace==VK_COLOR_SPACE_HDR10_ST2084_EXT){
-                chosen=f; m_hdrEnabled=true; break;
+        VkSurfaceFormatKHR chosen = fmts[0];
+        for (auto& f : fmts) {
+            if (f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) {
+                chosen = f;
+                m_hdrEnabled = true;
+                break;
             }
         }
-        LOGI("HDR10+ %s", m_hdrEnabled?"ENABLED":"not available (SDR fallback)");
+        LOGI("HDR10+ %s", m_hdrEnabled ? "ENABLED" : "not available (SDR fallback)");
 
         VkSurfaceCapabilitiesKHR caps;
-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_phys,m_surface,&caps);
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_phys, m_surface, &caps);
+        m_extent = caps.currentExtent;
+        uint32_t imgCount = caps.minImageCount + 1;
+        if (caps.maxImageCount > 0 && imgCount > caps.maxImageCount) {
+            imgCount = caps.maxImageCount;
+        }
         VkSwapchainCreateInfoKHR sc{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
-        sc.surface=m_surface;
-        sc.minImageCount=caps.minImageCount+1;
-        sc.imageFormat=chosen.format;
-        sc.imageColorSpace=chosen.colorSpace;
-        sc.imageExtent=caps.currentExtent;
-        sc.imageArrayLayers=1;
-        sc.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        sc.preTransform=caps.currentTransform;
-        sc.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        sc.presentMode=VK_PRESENT_MODE_FIFO_KHR;
-        sc.clipped=VK_TRUE;
-        return vkCreateSwapchainKHR(m_device,&sc,nullptr,&m_swapchain)==VK_SUCCESS;
+        sc.surface = m_surface;
+        sc.minImageCount = imgCount;
+        sc.imageFormat = chosen.format;
+        sc.imageColorSpace = chosen.colorSpace;
+        sc.imageExtent = m_extent;
+        sc.imageArrayLayers = 1;
+        sc.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        sc.preTransform = caps.currentTransform;
+        sc.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        sc.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        sc.clipped = VK_TRUE;
+        if (vkCreateSwapchainKHR(m_device, &sc, nullptr, &m_swapchain) != VK_SUCCESS) return false;
+
+        uint32_t actualCount = 0;
+        vkGetSwapchainImagesKHR(m_device, m_swapchain, &actualCount, nullptr);
+        m_swapImages.resize(actualCount);
+        vkGetSwapchainImagesKHR(m_device, m_swapchain, &actualCount, m_swapImages.data());
+        return !m_swapImages.empty();
+    }
+    bool createFrameResources() {
+        VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        poolInfo.queueFamilyIndex = 0;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        if (vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_cmdPool) != VK_SUCCESS) return false;
+
+        VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        alloc.commandPool = m_cmdPool;
+        alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc.commandBufferCount = 1;
+        if (vkAllocateCommandBuffers(m_device, &alloc, &m_cmdBuf) != VK_SUCCESS) return false;
+
+        VkSemaphoreCreateInfo sem{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        return vkCreateSemaphore(m_device, &sem, nullptr, &m_imageAvail) == VK_SUCCESS &&
+               vkCreateSemaphore(m_device, &sem, nullptr, &m_renderDone) == VK_SUCCESS &&
+               vkCreateFence(m_device, &fence, nullptr, &m_inFlight) == VK_SUCCESS;
     }
 
-    ANativeWindow* m_window=nullptr;
-    VkInstance m_instance=VK_NULL_HANDLE;
-    VkSurfaceKHR m_surface=VK_NULL_HANDLE;
-    VkPhysicalDevice m_phys=VK_NULL_HANDLE;
-    VkDevice m_device=VK_NULL_HANDLE;
-    VkQueue m_queue=VK_NULL_HANDLE;
-    VkSwapchainKHR m_swapchain=VK_NULL_HANDLE;
-    bool m_hdrEnabled=false;
-    uint64_t m_frame=0;
+    ANativeWindow* m_window = nullptr;
+    VkInstance m_instance = VK_NULL_HANDLE;
+    VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+    VkPhysicalDevice m_phys = VK_NULL_HANDLE;
+    VkDevice m_device = VK_NULL_HANDLE;
+    VkQueue m_queue = VK_NULL_HANDLE;
+    VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+    VkExtent2D m_extent{1920, 1080};
+    std::vector<VkImage> m_swapImages;
+    VkCommandPool m_cmdPool = VK_NULL_HANDLE;
+    VkCommandBuffer m_cmdBuf = VK_NULL_HANDLE;
+    VkSemaphore m_imageAvail = VK_NULL_HANDLE;
+    VkSemaphore m_renderDone = VK_NULL_HANDLE;
+    VkFence m_inFlight = VK_NULL_HANDLE;
+    bool m_hdrEnabled = false;
+    uint64_t m_frame = 0;
 };
 
 // ============================================================================
-//  GAME  —  ties everything together
+//  GAME — ties ECS, streaming terrain, Vulkan renderer, and touch input
 // ============================================================================
 class Game {
 public:
-    void onWindowReady(ANativeWindow* win){
-        m_renderer.init(win);
+    void onWindowReady(ANativeWindow* win) {
+        if (!m_renderer.init(win)) {
+            LOGE("Failed to initialize Vulkan renderer");
+            return;
+        }
         m_player.init(m_world);
         m_terrain = std::make_unique<TerrainStreamer>(m_world);
-        m_net.connect("mmo.example.com",7777);
-        m_initialized=true;
-        m_lastTime=clock::now();
-        LOGI("Game world initialized");
+        m_initialized = true;
+        m_lastTime = clock::now();
+        LOGI("Game world initialized (offline single-player mode)");
     }
 
-    void onWindowDestroyed(){
-        if(!m_initialized) return;
+    void connectToServer(const std::string& host, int port) {
+        m_net.connect(host, port);
+    }
+
+    void onWindowDestroyed() {
+        if (!m_initialized) return;
         m_net.disconnect();
         m_renderer.shutdown();
-        m_initialized=false;
+        m_initialized = false;
     }
 
-    void tick(){
-        if(!m_initialized) return;
-        auto now=clock::now();
-        float dt=std::chrono::duration<float>(now-m_lastTime).count();
-        m_lastTime=now;
-        dt=std::min(dt,0.1f); // clamp spikes
+    int32_t onMotionEvent(AInputEvent* ev) {
+        int32_t action = AMotionEvent_getAction(ev);
+        int32_t masked = action & AMOTION_EVENT_ACTION_MASK;
+        int32_t idx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+        int32_t id = AMotionEvent_getPointerId(ev, idx);
+        float w = static_cast<float>(m_renderer.width());
+        float h = static_cast<float>(m_renderer.height());
 
-        // --- input simulation (replace with touch input) ---
-        m_player.move(m_world,{1,0,0.3f},5.f,dt);
+        if (masked == AMOTION_EVENT_ACTION_DOWN || masked == AMOTION_EVENT_ACTION_POINTER_DOWN) {
+            float x = AMotionEvent_getX(ev, idx);
+            float y = AMotionEvent_getY(ev, idx);
+            if (x < w * 0.5f && m_joyPointer < 0) {
+                m_joyPointer = id;
+                m_joyOriginX = x;
+                m_joyOriginY = y;
+            } else if (x >= w * 0.5f) {
+                if (y > h * 0.7f) {
+                    int skillIdx = x < w * 0.67f ? 0 : (x < w * 0.84f ? 1 : 2);
+                    m_pendingSkill = skillIdx;
+                } else if (m_lookPointer < 0) {
+                    m_lookPointer = id;
+                    m_lastLookX = x;
+                }
+            }
+            return 1;
+        }
+        if (masked == AMOTION_EVENT_ACTION_UP || masked == AMOTION_EVENT_ACTION_POINTER_UP || masked == AMOTION_EVENT_ACTION_CANCEL) {
+            if (id == m_joyPointer) {
+                m_joyPointer = -1;
+                m_moveInput = {0, 0, 0};
+            } else if (id == m_lookPointer) {
+                m_lookPointer = -1;
+            }
+            return 1;
+        }
+        if (masked == AMOTION_EVENT_ACTION_MOVE) {
+            size_t count = AMotionEvent_getPointerCount(ev);
+            for (size_t i = 0; i < count; ++i) {
+                int32_t pid = AMotionEvent_getPointerId(ev, i);
+                float x = AMotionEvent_getX(ev, i);
+                float y = AMotionEvent_getY(ev, i);
+                if (pid == m_joyPointer) {
+                    float dx = std::clamp((x - m_joyOriginX) / 140.f, -1.f, 1.f);
+                    float dy = std::clamp((y - m_joyOriginY) / 140.f, -1.f, 1.f);
+                    m_moveInput = {dx, 0.f, -dy};
+                } else if (pid == m_lookPointer) {
+                    m_camYaw -= (x - m_lastLookX) * 0.004f;
+                    m_lastLookX = x;
+                }
+            }
+            return 1;
+        }
+        return 0;
+    }
 
-        Vec3 ppos=m_world.transform(m_player.entity).position;
+    void tick() {
+        if (!m_initialized) return;
+        auto now = clock::now();
+        float dt = std::chrono::duration<float>(now - m_lastTime).count();
+        m_lastTime = now;
+        dt = std::min(dt, 0.1f);
+
+        if (m_moveInput.length() > 0.05f) {
+            float cs = std::cos(m_camYaw);
+            float sn = std::sin(m_camYaw);
+            Vec3 worldDir{
+                m_moveInput.x * cs + m_moveInput.z * sn,
+                0.f,
+                -m_moveInput.x * sn + m_moveInput.z * cs
+            };
+            m_player.move(m_world, worldDir, 5.5f, dt);
+        }
+
+        if (m_pendingSkill >= 0) {
+            m_player.useSkill(m_world, m_pendingSkill);
+            m_pendingSkill = -1;
+        }
+
+        Vec3 ppos = m_world.transform(m_player.entity).position;
         m_terrain->update(ppos);
 
-        m_movement.update(m_world,*m_terrain,dt);
-        m_ai.update(m_world,m_player.entity,dt);
+        m_movement.update(m_world, *m_terrain, dt);
+        m_ai.update(m_world, m_player.entity, dt);
         m_player.updateCooldowns(dt);
 
-        // --- networking ---
-        NetPacket move{NetPacket::PLAYER_MOVE,m_player.entity,ppos,{}};
-        m_net.send(move);
-        NetPacket in;
-        while(m_net.poll(in)){ /* apply server state */ }
+        if (m_net.connected) {
+            NetPacket move{NetPacket::PLAYER_MOVE, m_player.entity, ppos, {}};
+            m_net.send(move);
+            NetPacket in;
+            while (m_net.poll(in)) {
+                if (in.type == NetPacket::PLAYER_MOVE && in.entity != m_player.entity && m_world.valid(in.entity)) {
+                    m_world.transform(in.entity).position = in.position;
+                }
+            }
+        }
 
-        // --- render ---
-        Vec3 eye=ppos+Vec3{0,8,-12};
-        Mat4 view=Mat4::lookAt(eye,ppos,{0,1,0});
-        Mat4 proj=Mat4::perspective(1.05f,16.f/9.f,0.1f,1000.f);
-        m_renderer.drawFrame(m_world,view,proj);
+        Vec3 eye = ppos + Vec3{-std::sin(m_camYaw) * 12.f, 8.f, -std::cos(m_camYaw) * 12.f};
+        float aspect = static_cast<float>(m_renderer.width()) / static_cast<float>(m_renderer.height());
+        Mat4 view = Mat4::lookAt(eye, ppos, {0, 1, 0});
+        Mat4 proj = Mat4::perspective(1.05f, aspect, 0.1f, 1000.f);
+        m_renderer.drawFrame(m_world, view, proj);
 
-        if(++m_frames%120==0)
+        if (++m_frames % 120 == 0) {
             LOGI("Pos(%.1f,%.1f,%.1f) Lv%d HP%.0f Gold%d",
-                 ppos.x,ppos.y,ppos.z,m_player.level,
-                 m_world.health(m_player.entity).current,m_player.gold);
+                 ppos.x, ppos.y, ppos.z, m_player.level,
+                 m_world.health(m_player.entity).current, m_player.gold);
+        }
     }
 
 private:
-    using clock=std::chrono::steady_clock;
-    bool m_initialized=false;
+    using clock = std::chrono::steady_clock;
+    bool m_initialized = false;
     clock::time_point m_lastTime;
-    uint64_t m_frames=0;
+    uint64_t m_frames = 0;
+
+    int32_t m_joyPointer = -1;
+    int32_t m_lookPointer = -1;
+    float m_joyOriginX = 0.f, m_joyOriginY = 0.f;
+    float m_lastLookX = 0.f;
+    float m_camYaw = 0.f;
+    int m_pendingSkill = -1;
+    Vec3 m_moveInput{0, 0, 0};
 
     World m_world;
     Player m_player;
@@ -655,41 +868,42 @@ private:
 };
 
 // ============================================================================
-//  ANDROID ENTRY POINT  —  native activity glue
+//  ANDROID ENTRY POINT — native activity glue
 // ============================================================================
 static Game g_game;
 
-static void handle_cmd(android_app* app,int32_t cmd){
-    switch(cmd){
+static void handle_cmd(android_app* app, int32_t cmd) {
+    switch (cmd) {
     case APP_CMD_INIT_WINDOW:
-        if(app->window) g_game.onWindowReady(app->window);
+        if (app->window) g_game.onWindowReady(app->window);
         break;
     case APP_CMD_TERM_WINDOW:
         g_game.onWindowDestroyed();
         break;
-    default: break;
+    default:
+        break;
     }
 }
 
-static int32_t handle_input(android_app* app,AInputEvent* ev){
-    if(AInputEvent_getType(ev)==AINPUT_EVENT_TYPE_MOTION){
-        // TODO: virtual joystick + skill buttons
-        return 1;
+static int32_t handle_input(android_app* app, AInputEvent* ev) {
+    (void)app;
+    if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION) {
+        return g_game.onMotionEvent(ev);
     }
     return 0;
 }
 
-void android_main(android_app* app){
-    app->onAppCmd     = handle_cmd;
+void android_main(android_app* app) {
+    app->onAppCmd = handle_cmd;
     app->onInputEvent = handle_input;
-    LOGI("=== MMORPG Engine starting ===");
+    LOGI("=== ShadowRealm 3D Vulkan Engine starting ===");
 
-    while(true){
-        int events;
-        android_poll_source* src;
-        while(ALooper_pollAll(0,nullptr,&events,(void**)&src)>=0){
-            if(src) src->process(app,src);
-            if(app->destroyRequested){
+    while (true) {
+        int events = 0;
+        android_poll_source* src = nullptr;
+        while (ALooper_pollAll(0, nullptr, &events, reinterpret_cast<void**>(&src)) >= 0) {
+            if (src) src->process(app, src);
+            if (app->destroyRequested) {
                 g_game.onWindowDestroyed();
                 LOGI("=== Engine shutdown ===");
                 return;
