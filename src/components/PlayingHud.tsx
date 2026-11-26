@@ -2,16 +2,19 @@ import React from 'react';
 import { BookOpen, Pause, Volume2, VolumeX } from 'lucide-react';
 import { CLASS_DEFINITIONS, DAY_CYCLE_SECONDS } from '../game/rules';
 import { HudSnapshot } from '../game/types';
+import { VirtualJoystick } from './VirtualJoystick';
 
 interface PlayingHudProps {
   hud: HudSnapshot;
   muted: boolean;
+  menuOpen?: boolean;
   hpBarRef: React.RefObject<HTMLDivElement | null>;
   trailingHpBarRef: React.RefObject<HTMLDivElement | null>;
   stamBarRef: React.RefObject<HTMLDivElement | null>;
   onOpenMenu: () => void;
   onToggleMute: () => void;
   onPause: () => void;
+  onJoystickMove: (x: number, y: number) => void;
   onBasicAttack: () => void;
   onPower: () => void;
   onHeal: () => void;
@@ -80,12 +83,14 @@ function AbilityIcon({ id, activeColor }: { id: string; activeColor: string }) {
 export const PlayingHud: React.FC<PlayingHudProps> = ({
   hud,
   muted,
+  menuOpen = false,
   hpBarRef,
   trailingHpBarRef,
   stamBarRef,
   onOpenMenu,
   onToggleMute,
   onPause,
+  onJoystickMove,
   onBasicAttack,
   onPower,
   onHeal,
@@ -388,8 +393,8 @@ export const PlayingHud: React.FC<PlayingHudProps> = ({
         </div>
       </div>
 
-      {/* BOTTOM-LEFT: Compact Recent Event Log (3 lines max) */}
-      <div className="hidden md:flex fixed bottom-4 left-4 w-[310px] flex-col gap-1 pointer-events-none">
+      {/* BOTTOM-LEFT (ABOVE JOYSTICK): Compact Recent Event Log (3 lines max) */}
+      <div className="hidden md:flex fixed bottom-40 left-4 w-[280px] flex-col gap-1 pointer-events-none">
         {hud.combatLog.slice(0, 3).map((entry) => (
           <div
             key={entry.id}
@@ -401,8 +406,17 @@ export const PlayingHud: React.FC<PlayingHudProps> = ({
         ))}
       </div>
 
-      {/* BOTTOM-CENTER: 6-Slot Action Bar */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto">
+      {/* BOTTOM-LEFT: Analog Virtual Joystick */}
+      <div className="fixed bottom-5 left-5 pointer-events-auto">
+        <VirtualJoystick
+          onMove={onJoystickMove}
+          disabled={menuOpen}
+          accentColor={cls.accentHex}
+        />
+      </div>
+
+      {/* BOTTOM-CENTER (md+) / BOTTOM-RIGHT (mobile): 6-Slot Action Bar */}
+      <div className="fixed bottom-4 right-4 grid grid-cols-3 gap-1.5 md:right-auto md:left-1/2 md:-translate-x-1/2 md:flex md:items-center md:gap-2 pointer-events-auto">
         {abilities.map((ab) => {
           const onCd = ab.cd > 0;
           const disabled = ab.locked || onCd;
@@ -416,7 +430,7 @@ export const PlayingHud: React.FC<PlayingHudProps> = ({
                 e.currentTarget.blur();
                 ab.onClick();
               }}
-              className={`relative w-14 h-14 hud-slot rounded-md flex flex-col items-center justify-center gap-0.5 transition-transform cursor-pointer ${
+              className={`relative w-12 h-12 md:w-14 md:h-14 hud-slot rounded-md flex flex-col items-center justify-center gap-0.5 transition-transform cursor-pointer ${
                 ab.active
                   ? 'border-[#c084fc] bg-[#2a1545]/95'
                   : disabled
@@ -428,7 +442,7 @@ export const PlayingHud: React.FC<PlayingHudProps> = ({
                 {ab.key}
               </span>
               <AbilityIcon id={ab.id} activeColor={cls.accentHex} />
-              <span className="text-[10px] font-medium text-[#e7decb] leading-none truncate max-w-[48px]">
+              <span className="text-[10px] font-medium text-[#e7decb] leading-none truncate max-w-[44px] md:max-w-[48px]">
                 {ab.locked ? 'Locked' : onCd ? `${ab.cd.toFixed(1)}s` : ab.name}
               </span>
             </button>

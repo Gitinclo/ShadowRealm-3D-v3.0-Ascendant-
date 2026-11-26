@@ -82,6 +82,16 @@ export function App() {
     setMuted(nextMuted);
   }, []);
 
+  const handleJoystickMove = useCallback((x: number, y: number) => {
+    engineRef.current?.setJoystickInput(x, y);
+  }, []);
+
+  useEffect(() => {
+    if (menuOpen) {
+      engineRef.current?.setJoystickInput(0, 0);
+    }
+  }, [menuOpen]);
+
   const phase = hud?.phase ?? 'title';
 
   return (
@@ -103,6 +113,7 @@ export function App() {
         <PlayingHud
           hud={hud}
           muted={muted}
+          menuOpen={menuOpen}
           hpBarRef={hpBarRef}
           trailingHpBarRef={trailingHpBarRef}
           stamBarRef={stamBarRef}
@@ -112,6 +123,7 @@ export function App() {
             setMenuOpen(false);
             engineRef.current?.setPhase('paused');
           }}
+          onJoystickMove={handleJoystickMove}
           onBasicAttack={() => engineRef.current?.triggerBasicAttack()}
           onPower={() => engineRef.current?.triggerPowerAbility()}
           onHeal={() => engineRef.current?.triggerHeal()}

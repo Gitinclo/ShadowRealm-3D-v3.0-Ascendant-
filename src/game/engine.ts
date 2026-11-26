@@ -170,6 +170,8 @@ export class ShadowRealmEngine {
 
   // Input state
   private heldKeys = new Set<string>();
+  private joystickX = 0;
+  private joystickY = 0;
   private jumpBufferTimer = 0;
   private attackBufferTimer = 0;
 
@@ -424,12 +426,16 @@ export class ShadowRealmEngine {
 
   private onWindowBlur = () => {
     this.heldKeys.clear();
+    this.joystickX = 0;
+    this.joystickY = 0;
     this.rmbDragging = false;
   };
 
   private onVisibilityChange = () => {
     if (document.hidden) {
       this.heldKeys.clear();
+      this.joystickX = 0;
+      this.joystickY = 0;
       this.rmbDragging = false;
     }
   };
@@ -536,6 +542,8 @@ export class ShadowRealmEngine {
 
   public startNewGame(name: string, classId: PlayerClassId): void {
     this.heldKeys.clear();
+    this.joystickX = 0;
+    this.joystickY = 0;
     this.player = createInitialPlayer(name, classId);
     this.player.y = groundHeightAt(this.player.x, this.player.z);
     this.heroRig.updateClassVisuals(classId);
@@ -572,11 +580,29 @@ export class ShadowRealmEngine {
     this.emitHudSnapshot();
   }
 
+  public setJoystickInput(x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || this.phase !== 'playing') {
+      this.joystickX = 0;
+      this.joystickY = 0;
+      return;
+    }
+    const mag = Math.hypot(x, y);
+    if (mag > 1) {
+      this.joystickX = x / mag;
+      this.joystickY = y / mag;
+    } else {
+      this.joystickX = x;
+      this.joystickY = y;
+    }
+  }
+
   public setPhase(next: GamePhase): void {
     this.phase = next;
     document.body.dataset.state = next;
     if (next !== 'playing') {
       this.heldKeys.clear();
+      this.joystickX = 0;
+      this.joystickY = 0;
       this.rmbDragging = false;
     }
     this.callbacks.onPhaseChange?.(next);
@@ -1016,7 +1042,7 @@ export class ShadowRealmEngine {
     // Trailing damage ghost bar decays smoothly toward current HP
     p.trailingHp = THREE.MathUtils.damp(p.trailingHp, p.hp, 5.5, realDt);
 
-    // Camera-relative movement input
+    // Camera-relative movement input (Keyboard WASD/Arrows + Virtual Joystick)
     let inFwd = 0;
     let inRight = 0;
     if (this.heldKeys.has('KeyW') || this.heldKeys.has('ArrowUp')) inFwd += 1;
@@ -1024,7 +1050,12 @@ export class ShadowRealmEngine {
     if (this.heldKeys.has('KeyD') || this.heldKeys.has('ArrowRight')) inRight += 1;
     if (this.heldKeys.has('KeyA') || this.heldKeys.has('ArrowLeft')) inRight -= 1;
 
-    const moving = inFwd !== 0 || inRight !== 0;
+    inFwd += this.joystickY;
+    inRight += this.joystickX;
+
+    const inputMag = Math.hypot(inFwd, inRight);
+    const moving = inputMag > 0.001;
+    const analogScale = Math.min(1, inputMag);
     const wantsSprint =
       (this.heldKeys.has('ShiftLeft') || this.heldKeys.has('ShiftRight')) && moving && p.stamina > 2;
     const speedMult = wantsSprint ? 1.55 : 1.0;
@@ -1048,7 +1079,7 @@ export class ShadowRealmEngine {
       mx /= len;
       mz /= len;
 
-      const moveSpeed = p.baseSpeed * speedMult;
+      const moveSpeed = p.baseSpeed * speedMult * analogScale;
       p.vx = THREE.MathUtils.damp(p.vx, mx * moveSpeed, 14, simDt);
       p.vz = THREE.MathUtils.damp(p.vz, mz * moveSpeed, 14, simDt);
 

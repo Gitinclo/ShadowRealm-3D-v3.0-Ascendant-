@@ -17,6 +17,7 @@ import {
   purchaseShopItem,
 } from './rules';
 import { CausalityContext, CausalityEffectCallbacks, CausalityEngine } from './causality';
+import { computeJoystickVector } from './joystick';
 
 function makeNoopCallbacks(log: string[]): CausalityEffectCallbacks {
   return {
@@ -180,4 +181,34 @@ test('Causality Engine v2 enforces priority ordering, AND/OR/NOT logic, and cool
   assert.equal(lvl.leveledUp, true);
   assert.ok(p.level >= 3);
   assert.ok(p.domainLevel >= 5);
+});
+
+test('VirtualJoystick math applies deadzone, rescales analog magnitude, and clamps to unit circle', () => {
+  // Inside deadzone (5 / 40 = 0.125 <= 0.18) produces zero output and active=false
+  const idle = computeJoystickVector(3, -4, 40, 0.18, 0.92);
+  assert.equal(idle.active, false);
+  assert.equal(idle.atEdge, false);
+  assert.equal(idle.x, 0);
+  assert.equal(idle.y, 0);
+  assert.equal(idle.magnitude, 0);
+
+  // Dragging straight up beyond deadzone yields positive forward Y (+1) and active=true
+  const forward = computeJoystickVector(0, -100, 40, 0.18, 0.92);
+  assert.equal(forward.active, true);
+  assert.equal(forward.atEdge, true);
+  assert.equal(Math.round(forward.x * 1000), 0);
+  assert.equal(Math.round(forward.y * 1000), 1000);
+  assert.equal(forward.knobY, -40);
+
+  // Diagonal clamping stays on unit circle
+  const diag = computeJoystickVector(80, 80, 40, 0.18, 0.92);
+  assert.equal(diag.active, true);
+  assert.ok(Math.abs(Math.hypot(diag.x, diag.y) - 1) < 1e-6);
+  assert.ok(diag.x > 0 && diag.y < 0);
+
+  // Non-finite inputs safely collapse to zero
+  const safe = computeJoystickVector(Number.NaN, 10, 40);
+  assert.equal(safe.active, false);
+  assert.equal(safe.x, 0);
+  assert.equal(safe.y, 0);
 });
