@@ -18,7 +18,7 @@ jobs:
     name: Validate Markdown & Showcase HTML
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify shadowrealm.html ends cleanly and embedded JS parses
         run: |
           python3 - <<'PY'
