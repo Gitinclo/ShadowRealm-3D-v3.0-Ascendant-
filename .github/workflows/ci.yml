@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Strict-warning syntax check on Causality.h
-        run: g++ -std=c++17 -Wall -Wextra -Werror -x c++ -fsyntax-only Causality.h
+        run: printf '#include "Causality.h"\n' | g++ -std=c++17 -Wall -Wextra -Werror -x c++ -fsyntax-only -I. -
 
   web-ci:
     name: Web Edition Lint, Unit Tests & Build

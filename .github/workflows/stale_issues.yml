@@ -1,0 +1,25 @@
+name: Stale Issues & PRs
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          exempt-issue-labels: "security,pinned,roadmap"
+          exempt-pr-labels: "pinned,breaking-change"
+          stale-issue-message: "This issue has been inactive for 60 days and will close in 14 days unless updated."
+          stale-pr-message: "This pull request has been inactive for 45 days and will close in 14 days unless updated."

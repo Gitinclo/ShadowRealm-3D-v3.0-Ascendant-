@@ -1,0 +1,23 @@
+# Build outputs
+build/
+build-*/
+dist/
+out/
+
+# Dependencies
+node_modules/
+glm/
+imgui/
+
+# Local environment secrets
+.env
+.env.local
+.env.*.local
+
+# OS & editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+.playwright-cli/

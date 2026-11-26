@@ -14,7 +14,7 @@ Zero-to-first-PR guide for new engineers and writers.
 
 ```bash
 # Verify Causality.h with strict warnings
-g++ -std=c++17 -Wall -Wextra -Werror -x c++ -fsyntax-only Causality.h
+printf '#include "Causality.h"\n' | g++ -std=c++17 -Wall -Wextra -Werror -x c++ -fsyntax-only -I. -
 
 # Run Web edition dev server & tests
 npm install && npm run lint && npm run build

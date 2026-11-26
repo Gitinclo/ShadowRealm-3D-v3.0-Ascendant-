@@ -54,7 +54,7 @@ jobs:
           git clone --depth 1 --branch v1.91.1 https://github.com/ocornut/imgui.git imgui
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$(which python3)"
 
       - name: Build
         run: cmake --build build --parallel 4
@@ -87,7 +87,10 @@ jobs:
           git clone --depth 1 --branch v1.91.1 https://github.com/ocornut/imgui.git imgui
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -Dglfw3_DIR=C:/glfw/lib/cmake/glfw3
+        shell: bash
+        run: |
+          PY_EXE="$(python -c 'import sys; print(sys.executable.replace("\\", "/"))')"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -Dglfw3_DIR=C:/glfw/lib/cmake/glfw3 -DPython3_EXECUTABLE="$PY_EXE"
 
       - name: Build
         run: cmake --build build --config Release

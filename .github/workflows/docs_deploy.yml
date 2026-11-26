@@ -1,0 +1,39 @@
+name: Documentation Validation & Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "*.md"
+      - "docs/**"
+      - "shadowrealm.html"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-docs:
+    name: Validate Markdown & Showcase HTML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify shadowrealm.html ends cleanly and embedded JS parses
+        run: |
+          python3 - <<'PY'
+          import re, subprocess, tempfile, os
+          html = open("shadowrealm.html", encoding="utf-8").read()
+          assert html.strip().endswith("</html>")
+          m = re.search(r"<script>([\s\S]*?)</script>", html)
+          assert m
+          with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+              tf.write(m.group(1))
+              p = tf.name
+          res = subprocess.run(["node", "--check", p], capture_output=True, text=True)
+          os.unlink(p)
+          assert res.returncode == 0, res.stderr
+          print("shadowrealm.html validation passed")
+          PY
+      - name: Verify README.md exists and is non-empty UTF-8
+        run: python3 -c 'txt=open("README.md", encoding="utf-8").read(); assert len(txt) > 500'
