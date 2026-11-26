@@ -31,7 +31,7 @@ jobs:
         run: cmake --build build --parallel 4
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shadowrealm-linux
           path: build/shadowrealm
@@ -60,7 +60,7 @@ jobs:
         run: cmake --build build --parallel 4
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shadowrealm-macos
           path: build/shadowrealm
@@ -93,7 +93,7 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shadowrealm-windows
           path: build/Release/shadowrealm.exe
