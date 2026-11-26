@@ -13,7 +13,7 @@ jobs:
     name: Nightly Desktop OpenGL Build (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -31,7 +31,7 @@ jobs:
     name: Nightly Web Tests & Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
