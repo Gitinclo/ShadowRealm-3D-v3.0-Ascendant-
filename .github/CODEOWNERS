@@ -1,0 +1,9 @@
+# Default code owners for ShadowRealm 3D
+* @Gitinclo
+/CMakeLists.txt @Gitinclo
+/Causality.h @Gitinclo
+/main_desktop.cpp @Gitinclo
+/main_android.cpp @Gitinclo
+/main_android_vulkan.cpp @Gitinclo
+/.github/ @Gitinclo
+/src/ @Gitinclo

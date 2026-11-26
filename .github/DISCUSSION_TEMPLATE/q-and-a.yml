@@ -1,0 +1,10 @@
+title: "[Q&A] "
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: Include platform (Desktop/Android/Web) and relevant file paths if applicable.
+    validations:
+      required: true

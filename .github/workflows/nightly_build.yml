@@ -1,0 +1,41 @@
+name: Nightly Full Verification
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-linux-desktop:
+    name: Nightly Desktop OpenGL Build (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libglfw3-dev libgl1-mesa-dev libx11-dev pkg-config python3-jinja2
+      - name: Fetch GLM & Dear ImGui
+        run: |
+          git clone --depth 1 --branch 1.0.1 https://github.com/g-truc/glm.git glm
+          git clone --depth 1 --branch v1.91.1 https://github.com/ocornut/imgui.git imgui
+      - name: Configure & Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 4
+
+  nightly-web:
+    name: Nightly Web Tests & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run lint
+      - run: npx --yes tsx --test src/game/rules.test.ts
+      - run: npm run build

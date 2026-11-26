@@ -1,0 +1,26 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: Breaking Changes
+      labels:
+        - breaking-change
+    - title: Engine & Gameplay Features
+      labels:
+        - enhancement
+        - feature
+    - title: Bug Fixes & Stability
+      labels:
+        - bug
+        - hotfix
+    - title: Cultivation Lore & Balance
+      labels:
+        - lore
+        - balance
+    - title: Documentation & Governance
+      labels:
+        - documentation
+    - title: Other Changes
+      labels:
+        - "*"

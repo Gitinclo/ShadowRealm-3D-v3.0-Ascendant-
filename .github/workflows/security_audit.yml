@@ -1,0 +1,31 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    name: npm Audit & Secret Pattern Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run npm audit (high/critical)
+        run: npm audit --audit-level=high || true
+      - name: Check for forbidden private key headers
+        run: |
+          if grep -rnE "BEGIN (RSA|EC|OPENSSH) PRIVATE KEY" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist; then
+            echo "Private key material detected!"
+            exit 1
+          fi

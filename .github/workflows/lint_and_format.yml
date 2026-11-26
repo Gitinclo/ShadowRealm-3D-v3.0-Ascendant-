@@ -1,0 +1,27 @@
+name: Lint & Format Checks
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: TypeScript, UTF-8 & C++ Syntax Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run lint
+      - name: Verify CMakeLists.txt is UTF-8 without BOM
+        run: |
+          python3 -c 'import codecs; raw=open("CMakeLists.txt","rb").read(); assert not raw.startswith((codecs.BOM_UTF8,codecs.BOM_UTF16_LE,codecs.BOM_UTF16_BE)); raw.decode("utf-8")'
+      - name: Strict C++17 check on Causality.h
+        run: g++ -std=c++17 -Wall -Wextra -Werror -x c++ -fsyntax-only Causality.h

@@ -1,0 +1,13 @@
+title: "[Announcement] "
+labels: ["announcement"]
+body:
+  - type: markdown
+    attributes:
+      value: Share release milestones, roadmap updates, or governance changes.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Announcement Summary
+      description: Key highlights and links to release notes or PRs.
+    validations:
+      required: true

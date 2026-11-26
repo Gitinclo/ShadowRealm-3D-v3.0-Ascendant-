@@ -1,0 +1,15 @@
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: pitch
+    attributes:
+      label: Feature or Cultivation System Pitch
+      description: Describe the mechanic, engine feature, or worldbuilding idea.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Why It Fits ShadowRealm 3D
+      description: How does this improve gameplay, engineering craft, or lore depth?

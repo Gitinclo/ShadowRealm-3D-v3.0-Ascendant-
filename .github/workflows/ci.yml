@@ -1,0 +1,36 @@
+name: CI Verification
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cpp-header-check:
+    name: C++17 Causality Header Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strict-warning syntax check on Causality.h
+        run: g++ -std=c++17 -Wall -Wextra -Werror -x c++ -fsyntax-only Causality.h
+
+  web-ci:
+    name: Web Edition Lint, Unit Tests & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install
+      - name: Type check
+        run: npm run lint
+      - name: Unit tests
+        run: npx --yes tsx --test src/game/rules.test.ts
+      - name: Production build
+        run: npm run build
